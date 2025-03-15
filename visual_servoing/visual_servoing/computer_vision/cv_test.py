@@ -87,12 +87,21 @@ def test_algorithm(detection_func, csv_file_path, template_file_path, swap=False
             img_path = row[0]
             bbox_true = ast.literal_eval(row[1])
             if not swap:
+                # print("swap false")
                 img = cv2.imread(img_path)
-                template = cv2.imread(template_file_path, 0)
+                if "cone" in template_file_path:
+                    template = cv2.imread(template_file_path)
+                else:
+                    template = cv2.imread(template_file_path, 0)
             else:
-                template = cv2.imread(img_path, 0)
+                if "cone" in template_file_path:
+                    template = cv2.imread(img_path)
+                else:
+                    template = cv2.imread(img_path, 0)
                 img = cv2.imread(template_file_path)
             # Detection bbox
+            print(template.shape)
+            print(img.shape)
             bbox_est = detection_func(img, template)
             score = iou_score(bbox_est, bbox_true)
             
