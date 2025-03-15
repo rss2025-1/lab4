@@ -54,6 +54,7 @@ class ConeDetector(Node):
 
         debug_msg = self.bridge.cv2_to_imgmsg(image, "bgr8")
         self.debug_pub.publish(debug_msg)
+        self.get_logger().info(f"Published cone pixel location: ({u}, {v})")
 
 def main(args=None):
     rclpy.init(args=args)
