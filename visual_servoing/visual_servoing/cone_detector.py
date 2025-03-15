@@ -41,11 +41,18 @@ class ConeDetector(Node):
         # publish this pixel (u, v) to the /relative_cone_px topic; the homography transformer will
         # convert it to the car frame.
 
+        line = True
+
         image = self.bridge.imgmsg_to_cv2(image_msg, "bgr8")
-        top_left, bottom_right = cd_color_segmentation(image, template=None)
+        top_left, bottom_right = cd_color_segmentation(image, template=None, line = line)
         u,v = float(top_left[0] + (bottom_right[0] - top_left[0])/2), float(bottom_right[1]) # bottom center pixel
 
         cv2.rectangle(image, top_left, bottom_right, (0, 255, 0), 2)
+
+        if line:
+            mask = np.zeros(image.shape[:2], np.uint8)
+            mask[170:240, :] = 255
+            image = cv2.bitwise_and(image, image, mask=mask)
 
         pixel = ConeLocationPixel()
         pixel.u = u
