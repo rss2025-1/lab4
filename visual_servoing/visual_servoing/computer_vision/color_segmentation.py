@@ -62,7 +62,7 @@ def cd_color_segmentation(img, template):
 			cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)  # Draw bounding box
 			bounding_box = ( (x, y), (x + w, y + h))
 	#cv2.imshow("Detected Cone", img)
-	image_print(img)
+	#image_print(img)
 	return (bounding_box)
 
 
