@@ -26,20 +26,20 @@ class ParkingController(Node):
             self.relative_cone_callback, 1)
 
         # Target distance to park in front of the cone (meters)
-        self.parking_distance = 0.75  # Increased to ~2.5 feet for greater distance from cone
+        self.parking_distance = 0.75  # ~2.5 feet (increased from 0.5m)
         self.relative_x = 0
         self.relative_y = 0
         
         # Controller parameters
         self.wheelbase = 0.325  # Distance between front and rear axles (meters)
-        self.max_speed = 0.4    # Reduced maximum speed for smoother motion
-        self.min_speed = 0.18   # Increased minimum speed to prevent stalling
+        self.max_speed = 0.5    # Maximum speed (m/s)
+        self.min_speed = 0.15   # Minimum speed when moving (m/s) - increased for smoother motion
         
         # Thresholds and gains
         self.angle_threshold = 0.1  # Radians (~5.7 degrees)
-        self.distance_threshold = 0.08  # Increased tolerance for distance
-        self.k_angular = 3.0    # Further reduced steering angle gain for smoother turning
-        self.k_distance = 0.3   # Reduced distance gain for smoother approach
+        self.distance_threshold = 0.05  # Meters
+        self.k_angular = 5.0    # Reduced steering angle gain for smoother turning
+        self.k_distance = 0.4   # Distance gain
         
         # State machine states
         self.ALIGN = 0
@@ -52,7 +52,7 @@ class ParkingController(Node):
         self.force_backup_every = 5  # Force backup more frequently
         
         # Maximum steering angle (radians)
-        self.max_steering = 0.5  # Further reduced to ~28 degrees for smoother turning
+        self.max_steering = 0.6  # Reduced to ~34 degrees for smoother turning
         
         # Add a frame counter for logging
         self.frame_counter = 0
@@ -61,14 +61,11 @@ class ParkingController(Node):
         # Add smoothing for controls
         self.prev_steering = 0.0
         self.prev_speed = 0.0
-        self.steering_smoothing = 0.15  # Increased smoothing for steering (lower = smoother)
-        self.speed_smoothing = 0.1      # Increased smoothing for speed (lower = smoother)
+        self.steering_smoothing = 0.4  # Increased from 0.3 for slightly smoother steering
+        self.speed_smoothing = 0.3     # Increased from 0.2 for slightly smoother acceleration/deceleration
         
         # Minimum speed required for turning (to prevent jittering)
         self.min_turn_speed = 0.2  # Minimum speed when turning
-        
-        # Add deadband for small steering adjustments to reduce jittering
-        self.steering_deadband = 0.03  # Ignore very small steering adjustments
         
         self.get_logger().info("Parking Controller Initialized")
 
@@ -78,24 +75,10 @@ class ParkingController(Node):
         """
         return previous + smoothing_factor * (target - previous)
 
-    def apply_deadband(self, value, deadband):
-        """
-        Apply a deadband to a control value to ignore very small changes
-        """
-        if abs(value) < deadband:
-            return 0.0
-        else:
-            # Keep the sign but reduce the magnitude by the deadband
-            return value - deadband if value > 0 else value + deadband
-
     def relative_cone_callback(self, msg):
         self.relative_x = msg.x_pos
         self.relative_y = msg.y_pos
-        
-        # Only log position occasionally to reduce console spam
-        if self.frame_counter % self.log_every_n_frames == 0:
-            self.get_logger().info("Relative cone position: x={:.2f}, y={:.2f}".format(self.relative_x, self.relative_y))
-            
+        self.get_logger().info("Relative cone position: x={:.2f}, y={:.2f}".format(self.relative_x, self.relative_y))
         drive_cmd = AckermannDriveStamped()
 
         # Calculate distance to the cone
@@ -158,17 +141,14 @@ class ParkingController(Node):
             if abs(angle_to_cone) > 0.5:  # ~28 degrees
                 # Less aggressive steering for larger angles
                 angle_sign = 1 if angle_to_cone > 0 else -1
-                steering_angle = angle_sign * self.max_steering * 0.7
+                steering_angle = angle_sign * self.max_steering * 0.8
             elif abs(angle_to_cone) > 0.3:  # ~17 degrees
                 # Medium steering for medium angles
                 angle_sign = 1 if angle_to_cone > 0 else -1
-                steering_angle = angle_sign * self.max_steering * 0.5
+                steering_angle = angle_sign * self.max_steering * 0.6
             else:
-                # Proportional for smaller angles with reduced gain
+                # Proportional for smaller angles
                 steering_angle = self.k_angular * angle_to_cone
-            
-            # Apply deadband to reduce jittering from small adjustments
-            steering_angle = self.apply_deadband(steering_angle, self.steering_deadband)
             
             # Limit to max steering
             steering_angle = max(min(steering_angle, self.max_steering), -self.max_steering)
@@ -176,16 +156,16 @@ class ParkingController(Node):
             # Set speed based on alignment needs
             if should_back_up:
                 # Back up when needed - smoother speed
-                target_speed = -0.22  # Gentler backing up
+                target_speed = -0.25  # Gentler backing up
                 
                 # When backing up, reverse steering for better alignment
                 if abs(angle_to_cone) > 0.3:  # ~17 degrees
                     # Reverse steering direction when backing up with angle
-                    steering_angle = -steering_angle * 0.7  # Reduce steering intensity when reversing
+                    steering_angle = -steering_angle * 0.8  # Reduce steering intensity when reversing
             else:
                 # Move forward with speed proportional to angle (slower for sharper turns)
                 turn_factor = 1.0 - min(1.0, abs(angle_to_cone) / 0.8)  # 0 for max angle, 1 for straight
-                target_speed = self.min_turn_speed + (0.2 * turn_factor)  # Between min_turn_speed and 0.4
+                target_speed = self.min_turn_speed + (0.3 * turn_factor)  # Between min_turn_speed and 0.5
             
             # If we're well-aligned with the cone, transition to APPROACH
             if abs(angle_to_cone) < self.angle_threshold:
@@ -202,12 +182,9 @@ class ParkingController(Node):
             # Smoother steering for maintaining alignment
             if abs(angle_to_cone) > 0.2:  # For angles > ~11 degrees
                 angle_sign = 1 if angle_to_cone > 0 else -1
-                steering_angle = angle_sign * self.max_steering * 0.5  # Less extreme
+                steering_angle = angle_sign * self.max_steering * 0.6  # Less extreme
             else:
                 steering_angle = self.k_angular * angle_to_cone
-            
-            # Apply deadband to reduce jittering from small adjustments
-            steering_angle = self.apply_deadband(steering_angle, self.steering_deadband)
                 
             # Limit steering
             steering_angle = max(min(steering_angle, self.max_steering), -self.max_steering)
@@ -251,6 +228,8 @@ class ParkingController(Node):
         
         # Apply smoothing to controls to prevent jittering
         speed = self.smooth_control(target_speed, self.prev_speed, self.speed_smoothing)
+        
+        # Apply more smoothing to steering than to speed to keep responsiveness
         steering_angle = self.smooth_control(steering_angle, self.prev_steering, self.steering_smoothing)
         
         # Save current controls for next iteration
@@ -260,7 +239,8 @@ class ParkingController(Node):
         # Ensure we're not trying to turn while stationary (causes jittering)
         if abs(speed) < 0.05 and abs(steering_angle) > 0.1:
             # If we need to turn but are nearly stopped, add a small speed
-            speed = self.min_turn_speed if steering_angle > 0 else -self.min_turn_speed
+            # Use a speed that matches the direction we need to turn for more natural movement
+            speed = self.min_turn_speed if (steering_angle * self.relative_y) > 0 else -self.min_turn_speed
         
         # Limit speed
         speed = max(min(speed, self.max_speed), -self.max_speed)
