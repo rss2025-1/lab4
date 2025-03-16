@@ -97,7 +97,8 @@ def cd_color_segmentation(img, template = None, line = False, merge_bb = False):
 	# largest_bbox = max(bounding_boxes, key=lambda box: (box[1][0] - box[0][0]) * (box[1][1] - box[0][1]))
 	# cv2.rectangle(img, largest_bbox[0], largest_bbox[1], (0, 255, 0), 2)  # Draw bounding box
 	# image_print(img)
-
+	if bounding_box == ((0,0),(0,0)):
+		return bounding_box
 	return bounding_boxes[np.argmax(areas)]#largest_bbox
 
 if __name__ == "__main__":
