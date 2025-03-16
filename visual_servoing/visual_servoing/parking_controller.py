@@ -70,6 +70,11 @@ class ParkingController(Node):
         self.steering_smoothing = 0.6  # Increased from 0.5 for even smoother steering
         self.speed_smoothing = 0.5     # Increased from 0.4 for smoother acceleration/deceleration
         
+        # Add hysteresis to prevent oscillation between states
+        self.direction_hysteresis = 0.3  # Seconds to maintain direction
+        self.last_direction_change = 0.0  # Time of last direction change
+        self.current_direction = 0  # 1 for forward, -1 for backward, 0 for initial
+        
         # Minimum speed required for turning (to prevent jittering)
         self.min_turn_speed = 0.25  # Minimum speed when turning - increased from 0.2
 
@@ -95,6 +100,9 @@ class ParkingController(Node):
         self.get_logger().info("Relative cone position: x={:.2f}, y={:.2f}".format(self.relative_x, self.relative_y))
         drive_cmd = AckermannDriveStamped()
 
+        # Get current time for hysteresis
+        current_time = self.get_clock().now().to_msg().sec + self.get_clock().now().to_msg().nanosec / 1e9
+        
         # Calculate distance to the cone
         distance_to_cone = np.sqrt(self.relative_x**2 + self.relative_y**2)
         
@@ -195,6 +203,32 @@ class ParkingController(Node):
             # Limit to max steering
             steering_angle = max(min(steering_angle, self.max_steering), -self.max_steering)
             
+            # Check if we need to enforce direction hysteresis
+            target_direction = -1 if should_back_up else 1  # Backing up or moving forward
+            
+            # Only allow direction change if enough time has passed
+            if self.current_direction != target_direction and self.current_direction != 0:
+                time_since_change = current_time - self.last_direction_change
+                if time_since_change < self.direction_hysteresis:
+                    # Not enough time has passed, maintain previous direction
+                    if self.current_direction == 1:  # Was going forward
+                        should_back_up = False  # Continue forward
+                        if should_log:
+                            self.get_logger().info("Hysteresis: maintaining forward direction")
+                    elif self.current_direction == -1:  # Was going backward
+                        should_back_up = True  # Continue backward
+                        if should_log:
+                            self.get_logger().info("Hysteresis: maintaining backward direction")
+                else:
+                    # Enough time has passed, update direction
+                    self.current_direction = target_direction
+                    self.last_direction_change = current_time
+                    if should_log:
+                        self.get_logger().info("Changing direction")
+            elif self.current_direction == 0:  # First movement
+                self.current_direction = target_direction
+                self.last_direction_change = current_time
+            
             # Set speed based on alignment needs
             if should_back_up:
                 # Back up when needed - smoother speed
@@ -291,7 +325,19 @@ class ParkingController(Node):
         # Apply smoothing to controls to prevent jittering
         # Use dynamic smoothing that adjusts based on current speed
         # At low speeds, apply more smoothing to prevent jitter
-        speed = self.dynamic_smoothing(target_speed, self.prev_speed, self.speed_smoothing, self.prev_speed)
+        
+        # Special handling for direction changes to prevent jitter
+        if target_speed * self.prev_speed < 0:  # If changing direction
+            # Slow down first before changing direction
+            if abs(self.prev_speed) > 0.1:
+                # Decelerate more quickly when changing direction
+                speed = self.prev_speed * 0.7  # Faster deceleration
+            else:
+                # Once slow enough, start in new direction but very gradually
+                speed = target_speed * 0.3  # Start very slowly in new direction
+        else:
+            # Normal smoothing when not changing direction
+            speed = self.dynamic_smoothing(target_speed, self.prev_speed, self.speed_smoothing, self.prev_speed)
         
         # Apply more smoothing to steering than to speed to keep responsiveness
         # Use a non-linear smoothing for steering to reduce jitter
