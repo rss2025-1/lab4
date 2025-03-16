@@ -54,11 +54,16 @@ class ParkingController(Node):
         # Maximum steering angle (radians)
         self.max_steering = 0.8  # Increased to ~46 degrees for very aggressive turning
         
+        # Add a frame counter for logging
+        self.frame_counter = 0
+        self.log_every_n_frames = 20
+        
         self.get_logger().info("Parking Controller Initialized")
 
     def relative_cone_callback(self, msg):
         self.relative_x = msg.x_pos
         self.relative_y = msg.y_pos
+        self.get_logger().info("Relative cone position: x={:.2f}, y={:.2f}".format(self.relative_x, self.relative_y))
         drive_cmd = AckermannDriveStamped()
 
         # Calculate distance to the cone
@@ -71,8 +76,15 @@ class ParkingController(Node):
         # Calculate distance error (how far we are from desired parking distance)
         distance_error = distance_to_cone - self.parking_distance
         
-        # Log current state for debugging
-        self.get_logger().info(f"State: {self.state}, Angle: {angle_to_cone:.2f}, Distance: {distance_to_cone:.2f}")
+        # Increment frame counter
+        self.frame_counter += 1
+        
+        # Only log every n frames
+        should_log = (self.frame_counter % self.log_every_n_frames) == 0
+        
+        # Log current state for debugging (only every n frames)
+        if should_log:
+            self.get_logger().info(f"State: {self.state}, Angle: {angle_to_cone:.2f}, Distance: {distance_to_cone:.2f}")
         
         # State machine for parking
         if self.state == self.ALIGN:
@@ -80,7 +92,8 @@ class ParkingController(Node):
             self.align_counter += 1
             
             # In ALIGN state, prioritize facing the cone
-            self.get_logger().info(f"ALIGN: angle={angle_to_cone:.2f}, distance={distance_to_cone:.2f}")
+            if should_log:
+                self.get_logger().info(f"ALIGN: angle={angle_to_cone:.2f}, distance={distance_to_cone:.2f}")
             
             # Determine if we should back up - only when needed
             should_back_up = False
@@ -88,17 +101,20 @@ class ParkingController(Node):
             # Back up if cone is significantly off to the side or behind
             if abs(angle_to_cone) > 0.5:  # ~28 degrees
                 should_back_up = True
-                self.get_logger().info("Backing up: Large angle")
+                if should_log:
+                    self.get_logger().info("Backing up: Large angle")
             
             # Back up if we're too close to the cone
             if distance_to_cone < self.parking_distance * 1.2:
                 should_back_up = True
-                self.get_logger().info("Backing up: Too close")
+                if should_log:
+                    self.get_logger().info("Backing up: Too close")
                 
             # Force backing up periodically if we're still in align state and angle is still large
             if self.align_counter >= self.force_backup_every and abs(angle_to_cone) > 0.3:
                 should_back_up = True
-                self.get_logger().info("Backing up: Forced periodic backup")
+                if should_log:
+                    self.get_logger().info("Backing up: Forced periodic backup")
                 self.align_counter = 0
             
             # Calculate steering angle - super aggressive for alignment
@@ -137,11 +153,13 @@ class ParkingController(Node):
             if abs(angle_to_cone) < self.angle_threshold:
                 self.state = self.APPROACH
                 self.align_counter = 0
-                self.get_logger().info("Aligned with cone, now approaching")
+                if should_log:
+                    self.get_logger().info("Aligned with cone, now approaching")
         
         elif self.state == self.APPROACH:
             # In APPROACH state, maintain alignment while approaching/backing to the correct distance
-            self.get_logger().info(f"APPROACH: angle={angle_to_cone:.2f}, distance_error={distance_error:.2f}")
+            if should_log:
+                self.get_logger().info(f"APPROACH: angle={angle_to_cone:.2f}, distance_error={distance_error:.2f}")
             
             # Still maintain alignment with aggressive steering
             if abs(angle_to_cone) > 0.2:  # For angles > ~11 degrees
@@ -157,7 +175,8 @@ class ParkingController(Node):
             if abs(angle_to_cone) > 0.3:  # ~17 degrees
                 self.state = self.ALIGN
                 self.align_counter = 0
-                self.get_logger().info("Lost alignment, going back to alignment phase")
+                if should_log:
+                    self.get_logger().info("Lost alignment, going back to alignment phase")
                 return  # Exit early to immediately handle the alignment
             
             # Determine speed based on distance error
@@ -170,11 +189,13 @@ class ParkingController(Node):
             # If we're at the right distance and still aligned, we're parked
             if abs(distance_error) < self.distance_threshold and abs(angle_to_cone) < self.angle_threshold:
                 self.state = self.PARKED
-                self.get_logger().info("Successfully parked!")
+                if should_log:
+                    self.get_logger().info("Successfully parked!")
         
         elif self.state == self.PARKED:
             # In PARKED state, just stop
-            self.get_logger().info("PARKED")
+            if should_log:
+                self.get_logger().info("PARKED")
             speed = 0.0
             steering_angle = 0.0
             
@@ -182,7 +203,8 @@ class ParkingController(Node):
             if abs(distance_error) > self.distance_threshold * 2 or abs(angle_to_cone) > self.angle_threshold * 2:
                 self.state = self.ALIGN
                 self.align_counter = 0
-                self.get_logger().info("Drifted from parking position, realigning")
+                if should_log:
+                    self.get_logger().info("Drifted from parking position, realigning")
         
         # Limit speed
         speed = max(min(speed, self.max_speed), -self.max_speed)
