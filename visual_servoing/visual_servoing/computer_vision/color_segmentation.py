@@ -13,7 +13,41 @@ import os
 #  v
 #  v
 ###############################################################
+def merge_bounding_boxes(bboxes, threshold=10):
+    """
+    Merge bounding boxes that are close to each other.
 
+    Parameters:
+        bboxes (list of tuples): List of bounding boxes in the form ((x1, y1), (x2, y2)).
+        threshold (int): Minimum distance between bounding boxes to consider them separate.
+
+    Returns:
+        merged_bboxes (list of tuples): List of merged bounding boxes.
+    """
+    merged_bboxes = []
+    while bboxes:
+        # Start with the first bounding box
+        x1, y1 = bboxes[0][0]
+        x2, y2 = bboxes[0][1]
+        bboxes.pop(0)
+        merged = [(x1, y1, x2, y2)]
+
+        # Check for overlapping or nearby bounding boxes
+        i = 0
+        while i < len(bboxes):
+            (bx1, by1),(bx2, by2)= bboxes[i]
+
+            if not (bx2 < x1 - threshold or bx1 > x2 + threshold or  # check if boxes are overlapping or within the threshold
+                    by2 < y1 - threshold or by1 > y2 + threshold):
+                x1, y1, x2, y2 = min(x1, bx1), min(y1, by1), max(x2, bx2), max(y2, by2) # if so expand the current bounding box
+                merged.append((bx1, by1, bx2, by2))
+                bboxes.pop(i)  # remove merged mox
+            else:
+                i += 1  # move to the next box
+
+        merged_bboxes.append(((x1, y1), (x2, y2)))
+
+    return merged_bboxes
 def image_print(img):
 	"""
 	Helper function to print out images, for debugging. Pass them in as a list.
@@ -23,7 +57,7 @@ def image_print(img):
 	cv2.waitKey(0)
 	cv2.destroyAllWindows()
 
-def cd_color_segmentation(img, template, line):
+def cd_color_segmentation(img, template = None, line = False, merge_bb = False):
 	"""
 	Implement the cone detection using color segmentation algorithm
 	Input:
@@ -41,46 +75,38 @@ def cd_color_segmentation(img, template, line):
 	bounding_box = ((0,0),(0,0))
 	hsv_image = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
-	if template is not None:
-		print(template.shape)
-		template_hsv = cv2.cvtColor(template, cv2.COLOR_BGR2HSV)
-		hue_values = template_hsv[:, :, 0].flatten()  # get hue values
-		lower_hue = max(0, np.percentile(hue_values, 46))   # (avoid outliers)
-		upper_hue = min(179, np.percentile(hue_values, 100))  #  (avoid outliers)
-		print(lower_hue, upper_hue)
-	else:
-		lower_hue = 8  # Lower HSV threshold
-		upper_hue = 27 # Upper HSV threshold
+	lower_hue = 1  # Lower HSV threshold
+	upper_hue = 30 # Upper HSV threshold
 	lower_bound = np.array([lower_hue, 200, 190],  dtype=np.uint8)  # Lower HSV threshold 
 	upper_bound = np.array([upper_hue, 255, 255],  dtype=np.uint8)  # Upper HSV threshold
 	
 	
 	mask = cv2.inRange(hsv_image, lower_bound, upper_bound) 
-	
-
+	bounding_boxes = []
 	contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 	for contour in contours:
-		if cv2.contourArea(contour) > 100:  # Minimum contour area to avoid noise
+		if cv2.contourArea(contour) > 30:  # Minimum contour area to avoid noise
 			x, y, w, h = cv2.boundingRect(contour)
-			cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)  # Draw bounding box
 			bounding_box = ( (x, y), (x + w, y + h))
-	#cv2.imshow("Detected Cone", img)
-	#image_print(img)
-	return (bounding_box)
-
-
-
-	########### YOUR CODE ENDS HERE ###########
-
-	# Return bounding box
-	# return bounding_box
+			# cv2.rectangle(img, bounding_box[0], bounding_box[1], (0, 255, 0), 2)  # Draw bounding box
+			bounding_boxes.append(bounding_box)
+	if merge_bb:
+		bounding_boxes = merge_bounding_boxes(bounding_boxes)
+	largest_bbox = max(bounding_boxes, key=lambda box: (box[1][0] - box[0][0]) * (box[1][1] - box[0][1]))
+	cv2.rectangle(img, largest_bbox[0], largest_bbox[1], (0, 255, 0), 2)  # Draw bounding box
+	# image_print(img)
+	return largest_bbox
 
 if __name__ == "__main__":
 	cone_template = "test_images_cone/cone_template.png"
 	template = cv2.imread(cone_template)
-	print(template.shape)
 	for i in range(1,20):
 		image_path = "test_images_cone/test" +str(i) + ".jpg"
 
 		image = cv2.imread(image_path)
-		cd_color_segmentation(np.array(image), template)
+		cd_color_segmentation(np.array(image), template = None, line = False)
+	# for i in range(1,5):
+	# 	image_path = "test_images_cone_real/test" +str(i) + ".png"
+
+	# 	image = cv2.imread(image_path)
+	# 	cd_color_segmentation(np.array(image))
