@@ -93,7 +93,7 @@ def cd_color_segmentation(img, template = None, line = False, merge_bb = False):
 	if merge_bb:
 		bounding_boxes = merge_bounding_boxes(bounding_boxes)
 	largest_bbox = max(bounding_boxes, key=lambda box: (box[1][0] - box[0][0]) * (box[1][1] - box[0][1]))
-	cv2.rectangle(img, largest_bbox[0], largest_bbox[1], (0, 255, 0), 2)  # Draw bounding box
+	# cv2.rectangle(img, largest_bbox[0], largest_bbox[1], (0, 255, 0), 2)  # Draw bounding box
 	# image_print(img)
 	return largest_bbox
 
