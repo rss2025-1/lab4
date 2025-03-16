@@ -32,14 +32,14 @@ class ParkingController(Node):
         
         # Controller parameters
         self.wheelbase = 0.325  # Distance between front and rear axles (meters)
-        self.max_speed = 0.5    # Maximum speed (m/s)
-        self.min_speed = 0.15   # Minimum speed when moving (m/s) - increased for smoother motion
+        self.max_speed = 0.7    # Maximum speed (m/s) - increased from 0.5
+        self.min_speed = 0.2    # Minimum speed when moving (m/s) - increased from 0.15
         
         # Thresholds and gains
         self.angle_threshold = 0.1  # Radians (~5.7 degrees)
-        self.distance_threshold = 0.05  # Meters
-        self.k_angular = 5.0    # Reduced steering angle gain for smoother turning
-        self.k_distance = 0.4   # Distance gain
+        self.distance_threshold = 0.1  # Meters - increased from 0.05 to reduce oscillation
+        self.k_angular = 4.0    # Reduced from 5.0 for smoother turning
+        self.k_distance = 0.5   # Distance gain - increased from 0.4 for faster approach
         
         # State machine states
         self.ALIGN = 0
@@ -51,6 +51,12 @@ class ParkingController(Node):
         self.align_counter = 0
         self.force_backup_every = 5  # Force backup more frequently
         
+        # Add a counter to prevent getting stuck in a loop
+        self.stuck_counter = 0
+        self.stuck_threshold = 30  # Number of frames to consider "stuck"
+        self.last_distance = 0.0
+        self.last_angle = 0.0
+        
         # Maximum steering angle (radians)
         self.max_steering = 0.6  # Reduced to ~34 degrees for smoother turning
         
@@ -61,12 +67,12 @@ class ParkingController(Node):
         # Add smoothing for controls
         self.prev_steering = 0.0
         self.prev_speed = 0.0
-        self.steering_smoothing = 0.4  # Increased from 0.3 for slightly smoother steering
-        self.speed_smoothing = 0.3     # Increased from 0.2 for slightly smoother acceleration/deceleration
+        self.steering_smoothing = 0.6  # Increased from 0.5 for even smoother steering
+        self.speed_smoothing = 0.5     # Increased from 0.4 for smoother acceleration/deceleration
         
         # Minimum speed required for turning (to prevent jittering)
-        self.min_turn_speed = 0.2  # Minimum speed when turning
-        
+        self.min_turn_speed = 0.25  # Minimum speed when turning - increased from 0.2
+
         self.get_logger().info("Parking Controller Initialized")
 
     def smooth_control(self, target, previous, smoothing_factor):
@@ -101,6 +107,28 @@ class ParkingController(Node):
         if should_log:
             self.get_logger().info(f"State: {self.state}, Angle: {angle_to_cone:.2f}, Distance: {distance_to_cone:.2f}")
         
+        # Check if we're stuck (not making progress)
+        is_stuck = False
+        if self.frame_counter > 1:  # Skip the first frame
+            distance_change = abs(distance_to_cone - self.last_distance)
+            angle_change = abs(angle_to_cone - self.last_angle)
+            
+            # If we're not making significant progress
+            if distance_change < 0.02 and angle_change < 0.02:
+                self.stuck_counter += 1
+                if self.stuck_counter > self.stuck_threshold and self.state != self.PARKED:
+                    is_stuck = True
+                    self.stuck_counter = 0
+                    if should_log:
+                        self.get_logger().info("Detected stuck condition, changing strategy")
+            else:
+                # Reset counter if we're making progress
+                self.stuck_counter = 0
+        
+        # Save current values for next iteration
+        self.last_distance = distance_to_cone
+        self.last_angle = angle_to_cone
+        
         # Initialize target speed and steering
         target_speed = 0.0
         steering_angle = 0.0
@@ -117,14 +145,20 @@ class ParkingController(Node):
             # Determine if we should back up - only when needed
             should_back_up = False
             
+            # If we're stuck, try backing up to get unstuck
+            if is_stuck:
+                should_back_up = True
+                if should_log:
+                    self.get_logger().info("Backing up: Stuck condition")
+            
             # Back up if cone is significantly off to the side or behind
             if abs(angle_to_cone) > 0.5:  # ~28 degrees
                 should_back_up = True
                 if should_log:
                     self.get_logger().info("Backing up: Large angle")
             
-            # Back up if we're too close to the cone
-            if distance_to_cone < self.parking_distance * 1.2:
+            # Back up if we're too close to the cone - adjusted to prevent oscillation
+            if distance_to_cone < (self.parking_distance * 0.9):  # Only back up if significantly closer than target
                 should_back_up = True
                 if should_log:
                     self.get_logger().info("Backing up: Too close")
@@ -141,11 +175,11 @@ class ParkingController(Node):
             if abs(angle_to_cone) > 0.5:  # ~28 degrees
                 # Less aggressive steering for larger angles
                 angle_sign = 1 if angle_to_cone > 0 else -1
-                steering_angle = angle_sign * self.max_steering * 0.8
+                steering_angle = angle_sign * self.max_steering * 0.7  # Reduced from 0.8
             elif abs(angle_to_cone) > 0.3:  # ~17 degrees
                 # Medium steering for medium angles
                 angle_sign = 1 if angle_to_cone > 0 else -1
-                steering_angle = angle_sign * self.max_steering * 0.6
+                steering_angle = angle_sign * self.max_steering * 0.5  # Reduced from 0.6
             else:
                 # Proportional for smaller angles
                 steering_angle = self.k_angular * angle_to_cone
@@ -156,23 +190,30 @@ class ParkingController(Node):
             # Set speed based on alignment needs
             if should_back_up:
                 # Back up when needed - smoother speed
-                target_speed = -0.25  # Gentler backing up
+                target_speed = -0.3  # Faster backing up - increased from -0.25
                 
                 # When backing up, reverse steering for better alignment
                 if abs(angle_to_cone) > 0.3:  # ~17 degrees
                     # Reverse steering direction when backing up with angle
-                    steering_angle = -steering_angle * 0.8  # Reduce steering intensity when reversing
+                    steering_angle = -steering_angle * 0.7  # Reduced from 0.8
             else:
                 # Move forward with speed proportional to angle (slower for sharper turns)
-                turn_factor = 1.0 - min(1.0, abs(angle_to_cone) / 0.8)  # 0 for max angle, 1 for straight
-                target_speed = self.min_turn_speed + (0.3 * turn_factor)  # Between min_turn_speed and 0.5
+                turn_factor = 1.0 - min(0.8, abs(angle_to_cone) / 0.8)  # Modified to maintain more speed in turns
+                target_speed = self.min_turn_speed + (0.4 * turn_factor)  # Increased from 0.3
             
             # If we're well-aligned with the cone, transition to APPROACH
             if abs(angle_to_cone) < self.angle_threshold:
-                self.state = self.APPROACH
-                self.align_counter = 0
-                if should_log:
-                    self.get_logger().info("Aligned with cone, now approaching")
+                # Only transition to APPROACH if we're not too close already
+                if distance_to_cone > self.parking_distance:
+                    self.state = self.APPROACH
+                    self.align_counter = 0
+                    if should_log:
+                        self.get_logger().info("Aligned with cone, now approaching")
+                else:
+                    # If we're already close enough, go straight to PARKED
+                    self.state = self.PARKED
+                    if should_log:
+                        self.get_logger().info("Already at parking distance, now parked")
         
         elif self.state == self.APPROACH:
             # In APPROACH state, maintain alignment while approaching/backing to the correct distance
@@ -206,6 +247,10 @@ class ParkingController(Node):
                 min_approach_speed = self.min_speed * turn_factor
                 target_speed = min_approach_speed if target_speed > 0 else -min_approach_speed
             
+            # Add a small deadband to prevent oscillation around the target
+            if abs(distance_error) < self.distance_threshold * 0.5:
+                target_speed = 0.0
+            
             # If we're at the right distance and still aligned, we're parked
             if abs(distance_error) < self.distance_threshold and abs(angle_to_cone) < self.angle_threshold:
                 self.state = self.PARKED
@@ -230,7 +275,14 @@ class ParkingController(Node):
         speed = self.smooth_control(target_speed, self.prev_speed, self.speed_smoothing)
         
         # Apply more smoothing to steering than to speed to keep responsiveness
-        steering_angle = self.smooth_control(steering_angle, self.prev_steering, self.steering_smoothing)
+        # Use a non-linear smoothing for steering to reduce jitter
+        steering_diff = steering_angle - self.prev_steering
+        if abs(steering_diff) > 0.2:  # For large steering changes
+            # Apply more aggressive smoothing
+            steering_angle = self.prev_steering + (steering_diff * 0.4)
+        else:
+            # Normal smoothing for small changes
+            steering_angle = self.smooth_control(steering_angle, self.prev_steering, self.steering_smoothing)
         
         # Save current controls for next iteration
         self.prev_speed = speed
