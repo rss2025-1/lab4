@@ -81,6 +81,14 @@ class ParkingController(Node):
         """
         return previous + smoothing_factor * (target - previous)
 
+    def dynamic_smoothing(self, target, previous, base_factor, speed):
+        """
+        Apply dynamic smoothing based on speed - more smoothing at low speeds
+        """
+        # At low speeds, use more smoothing to prevent jitter
+        dynamic_factor = base_factor * (0.5 + min(1.0, abs(speed) / 0.3))
+        return self.smooth_control(target, previous, dynamic_factor)
+
     def relative_cone_callback(self, msg):
         self.relative_x = msg.x_pos
         self.relative_y = msg.y_pos
@@ -197,9 +205,18 @@ class ParkingController(Node):
                     # Reverse steering direction when backing up with angle
                     steering_angle = -steering_angle * 0.7  # Reduced from 0.8
             else:
-                # Move forward with speed proportional to angle (slower for sharper turns)
-                turn_factor = 1.0 - min(0.8, abs(angle_to_cone) / 0.8)  # Modified to maintain more speed in turns
-                target_speed = self.min_turn_speed + (0.4 * turn_factor)  # Increased from 0.3
+                # Always move forward during alignment - never stop to turn
+                # Use a minimum speed that's proportional to steering angle
+                # More steering = more speed to ensure smooth arcs
+                steering_factor = min(1.0, abs(steering_angle) / self.max_steering)
+                min_forward_speed = self.min_turn_speed + (0.15 * steering_factor)
+                
+                # Base speed on distance and angle
+                turn_factor = 1.0 - min(0.7, abs(angle_to_cone) / 0.8)  # Modified to maintain more speed in turns
+                distance_speed = self.min_turn_speed + (0.4 * turn_factor)
+                
+                # Use the larger of the two speeds to ensure we're always moving enough
+                target_speed = max(min_forward_speed, distance_speed)
             
             # If we're well-aligned with the cone, transition to APPROACH
             if abs(angle_to_cone) < self.angle_threshold:
@@ -272,7 +289,9 @@ class ParkingController(Node):
                     self.get_logger().info("Drifted from parking position, realigning")
         
         # Apply smoothing to controls to prevent jittering
-        speed = self.smooth_control(target_speed, self.prev_speed, self.speed_smoothing)
+        # Use dynamic smoothing that adjusts based on current speed
+        # At low speeds, apply more smoothing to prevent jitter
+        speed = self.dynamic_smoothing(target_speed, self.prev_speed, self.speed_smoothing, self.prev_speed)
         
         # Apply more smoothing to steering than to speed to keep responsiveness
         # Use a non-linear smoothing for steering to reduce jitter
@@ -282,17 +301,23 @@ class ParkingController(Node):
             steering_angle = self.prev_steering + (steering_diff * 0.4)
         else:
             # Normal smoothing for small changes
-            steering_angle = self.smooth_control(steering_angle, self.prev_steering, self.steering_smoothing)
+            steering_angle = self.dynamic_smoothing(steering_angle, self.prev_steering, 
+                                                   self.steering_smoothing, speed)
         
         # Save current controls for next iteration
         self.prev_speed = speed
         self.prev_steering = steering_angle
         
-        # Ensure we're not trying to turn while stationary (causes jittering)
-        if abs(speed) < 0.05 and abs(steering_angle) > 0.1:
-            # If we need to turn but are nearly stopped, add a small speed
-            # Use a speed that matches the direction we need to turn for more natural movement
-            speed = self.min_turn_speed if (steering_angle * self.relative_y) > 0 else -self.min_turn_speed
+        # ALWAYS maintain a minimum speed when steering
+        if abs(steering_angle) > 0.05:  # If we're turning at all
+            # Set a minimum speed proportional to steering angle
+            min_required_speed = self.min_turn_speed * (1.0 + abs(steering_angle) / self.max_steering)
+            
+            # If current speed is too low, increase it
+            if abs(speed) < min_required_speed:
+                # Use the sign of the current speed or steering direction if speed is near zero
+                speed_sign = 1.0 if speed > 0.01 else (-1.0 if speed < -0.01 else (1.0 if steering_angle * self.relative_y > 0 else -1.0))
+                speed = speed_sign * min_required_speed
         
         # Limit speed
         speed = max(min(speed, self.max_speed), -self.max_speed)
