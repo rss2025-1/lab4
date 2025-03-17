@@ -31,27 +31,27 @@ class ParkingController(Node):
         self.wheelbase = 0.325  # Distance between front and rear axles (meters)
         self.max_speed = 1.5    # Maximum speed (m/s)
         self.min_speed = 0.8    # Minimum speed when moving (m/s)
-        self.max_steering = 0.4  # Maximum steering angle (radians)
+        self.max_steering = 0.3  # Maximum steering angle (radians) - reduced from 0.4
         
         # Lookahead distance parameters
-        self.min_lookahead = 0.3  # Minimum lookahead distance
-        self.max_lookahead = 1.0  # Maximum lookahead distance (reduced from 1.5)
-        self.lookahead_factor = 0.4  # Factor to multiply distance by for lookahead (reduced from 0.5)
+        self.min_lookahead = 0.5  # Minimum lookahead distance - increased from 0.3
+        self.max_lookahead = 2.0  # Maximum lookahead distance - increased from 1.0
+        self.lookahead_factor = 0.8  # Factor to multiply distance by for lookahead - increased from 0.4
         
         # Variables to store previous control values for smoothing
         self.prev_steering = 0.0
         self.prev_speed = 0.0
         
         # Smoothing factors
-        self.steering_smoothing = 0.3
+        self.steering_smoothing = 0.2  # Reduced from 0.3 for smoother steering
         self.speed_smoothing = 0.3
         
         # Threshold for considering the parking complete
-        self.distance_threshold = 0.05  # Meters
-        self.angle_threshold = 0.05     # Radians
+        self.distance_threshold = 0.08  # Meters - increased from 0.05
+        self.angle_threshold = 0.08     # Radians - increased from 0.05
         
         # Alignment parameters
-        self.alignment_weight = 2.0  # Weight for alignment vs. distance (increased from 1.0)
+        self.alignment_weight = 0.8  # Weight for alignment vs. distance - reduced from 2.0
         
         self.get_logger().info("Pure Pursuit Parking Controller Initialized")
 
@@ -73,26 +73,26 @@ class ParkingController(Node):
         distance_to_go = current_distance - self.parking_distance
         
         # Calculate a dynamic lookahead distance based on how far we are from the target
+        # For higher speeds, use a larger lookahead distance
         lookahead = min(self.max_lookahead, max(self.min_lookahead, 
                                                abs(distance_to_go) * self.lookahead_factor))
         
         # Increase the importance of alignment as we get closer to the target
-        alignment_factor = min(1.0, self.alignment_weight * (1.0 - min(1.0, abs(distance_to_go) / 0.5)))
+        # But keep it lower to avoid aggressive turning
+        alignment_factor = min(0.5, self.alignment_weight * (1.0 - min(1.0, abs(distance_to_go) / 1.0)))
         
         # If we're too close, we need to back up, so place the target point behind the robot
-        if distance_to_go < -0.05:  # Only back up if we're significantly too close
+        if distance_to_go < -0.1:  # Only back up if we're significantly too close
             # Target point is behind the robot (negative x)
             target_x = -lookahead
-            # Add lateral offset to help with alignment
-            target_y = -y * alignment_factor
+            # Reduced lateral offset to avoid circling
+            target_y = -y * 0.3
         else:
-            # Calculate a target point that helps with alignment
-            
-            # If we're close to the target distance but not aligned, prioritize alignment
-            if abs(distance_to_go) < 0.2 and abs(angle) > 0.1:
-                # Create a target point that's more to the side to help with alignment
-                target_x = x * 0.5  # Reduce forward component
-                target_y = y * 1.5  # Increase lateral component
+            # If we're close to the target distance but not aligned, prioritize going straight to the cone
+            if abs(distance_to_go) < 0.3:
+                # Direct approach to the cone
+                target_x = x
+                target_y = y
             else:
                 # Normalize the vector to the cone
                 norm = current_distance
@@ -103,13 +103,11 @@ class ParkingController(Node):
                 unit_y = y / norm
                 
                 # Place the target point at the lookahead distance in the direction of the cone
-                # but adjust it to help with alignment
                 target_x = unit_x * lookahead
                 target_y = unit_y * lookahead
                 
-                # Add a lateral adjustment to improve alignment
-                # This shifts the target point more to the side when the cone is off-center
-                lateral_adjustment = y * alignment_factor
+                # Add a smaller lateral adjustment to improve alignment without causing circles
+                lateral_adjustment = y * alignment_factor * 0.5
                 target_y += lateral_adjustment
         
         return target_x, target_y
@@ -135,7 +133,12 @@ class ParkingController(Node):
             lookahead_distance = 0.001
             
         # Calculate the curvature (1/radius)
+        # Reduce the curvature for higher speeds to avoid circling
         curvature = 2 * lateral / (lookahead_distance**2)
+        
+        # Scale down curvature at high speeds
+        speed_scale = max(0.5, 1.0 - min(1.0, abs(self.prev_speed) / self.max_speed) * 0.5)
+        curvature *= speed_scale
         
         # Calculate the steering angle using the bicycle model
         steering_angle = np.arctan(self.wheelbase * curvature)
@@ -178,31 +181,31 @@ class ParkingController(Node):
             self.get_logger().info("Parked successfully!")
         else:
             # Set speed proportional to distance error, with a sign to determine direction
-            speed_factor = min(1.0, abs(distance_error) / 0.5)  # Scale speed by distance, max out at 0.5m
+            # Use a more direct approach with higher minimum speed
+            if distance_error > 0:  # Need to move forward
+                # Forward speed scales with distance but maintains minimum speed
+                speed_factor = min(1.0, max(0.5, distance_error / 1.0))
+                target_speed = self.min_speed + (self.max_speed - self.min_speed) * speed_factor
+            elif distance_error < -0.1:  # Need to back up, but only if significantly too close
+                # Backing up speed is constant and slower
+                target_speed = -0.5
+            else:
+                # We're close enough, just focus on alignment
+                target_speed = 0.0
             
-            # Reduce speed when the angle is large (for better alignment)
-            angle_factor = max(0.3, 1.0 - min(1.0, abs(angle) / 0.5))
-            
-            # Combine factors
-            combined_factor = speed_factor * angle_factor
-            
-            # Set speed with direction
-            target_speed = np.sign(distance_error) * max(self.min_speed, self.max_speed * combined_factor)
+            # Reduce speed when the angle is very large
+            if abs(angle) > 0.5:  # Only slow down for large angles
+                target_speed *= 0.7
             
             # Special case: if we're close but not aligned, prioritize alignment
-            if abs(distance_error) < 0.15 and abs(angle) > 0.1:
-                # If the cone is to the left, we need to turn left (negative steering)
-                # If the cone is to the right, we need to turn right (positive steering)
-                if abs(angle) > 0.3:  # If angle is large, we might need to back up to align
-                    target_speed = -0.15  # Slow backward movement for alignment
-                    # Reverse the steering direction when backing up
-                    target_steering = -np.sign(angle) * min(self.max_steering, abs(angle) * 0.8)
-                else:
-                    target_speed *= 0.5  # Reduce speed for fine alignment
+            if abs(distance_error) < 0.2 and abs(angle) > 0.1:
+                if target_speed > 0:
+                    target_speed *= 0.5  # Reduce forward speed for alignment
+                # Steering is already handled by pure pursuit
         
-        # Smooth the control signals
-        smooth_speed = self.smooth_control(target_speed, self.prev_speed, self.speed_smoothing)
+        # Apply stronger smoothing to steering to prevent oscillations
         smooth_steering = self.smooth_control(target_steering, self.prev_steering, self.steering_smoothing)
+        smooth_speed = self.smooth_control(target_speed, self.prev_speed, self.speed_smoothing)
         
         # Store current controls for next iteration
         self.prev_speed = smooth_speed
