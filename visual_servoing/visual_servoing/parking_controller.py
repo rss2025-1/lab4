@@ -29,8 +29,8 @@ class ParkingController(Node):
         
         # Pure pursuit parameters
         self.wheelbase = 0.325  # Distance between front and rear axles (meters)
-        self.max_speed = 0.7    # Maximum speed (m/s)
-        self.min_speed = 0.1    # Minimum speed when moving (m/s)
+        self.max_speed = 1.5    # Maximum speed (m/s)
+        self.min_speed = 0.8    # Minimum speed when moving (m/s)
         self.max_steering = 0.4  # Maximum steering angle (radians)
         
         # Lookahead distance parameters
