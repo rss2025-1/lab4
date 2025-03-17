@@ -50,9 +50,10 @@ class ConeDetector(Node):
         cv2.rectangle(image, top_left, bottom_right, (0, 255, 0), 2)
 
         if line:
-            mask = np.zeros(image.shape[:2], np.uint8)
-            mask[170:240, :] = 255
-            image = cv2.bitwise_and(image, image, mask=mask)
+            mask = np.zeros(img.shape[:2], np.uint8)
+            print(img.shape)
+            mask[270:340, :] = 255  # Select the bottom 70 rows
+            img = cv2.bitwise_and(img, img, mask=mask)
 
         pixel = ConeLocationPixel()
         pixel.u = u

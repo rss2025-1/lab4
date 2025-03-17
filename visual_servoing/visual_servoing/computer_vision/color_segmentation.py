@@ -69,7 +69,8 @@ def cd_color_segmentation(img, template = None, line = False, merge_bb = False):
 	"""
 	if line:
 		mask = np.zeros(img.shape[:2], np.uint8)
-		mask[170:240, :] = 255
+		print(img.shape)
+		mask[270:340, :] = 255  # Select the bottom 70 rows
 		img = cv2.bitwise_and(img, img, mask=mask)
     
 	bounding_box = ((0,0),(0,0))
@@ -77,7 +78,7 @@ def cd_color_segmentation(img, template = None, line = False, merge_bb = False):
 
 	lower_hue = 1  # Lower HSV threshold
 	upper_hue = 30 # Upper HSV threshold
-	lower_bound = np.array([lower_hue, 200, 150],  dtype=np.uint8)  # Lower HSV threshold 
+	lower_bound = np.array([lower_hue, 50, 50],  dtype=np.uint8)  # Lower HSV threshold 
 	upper_bound = np.array([upper_hue, 255, 255],  dtype=np.uint8)  # Upper HSV threshold
 	
 	
@@ -95,15 +96,15 @@ def cd_color_segmentation(img, template = None, line = False, merge_bb = False):
 	# if merge_bb:
 	# 	bounding_boxes = merge_bounding_boxes(bounding_boxes)
 	# largest_bbox = max(bounding_boxes, key=lambda box: (box[1][0] - box[0][0]) * (box[1][1] - box[0][1]))
-	# cv2.rectangle(img, bounding_boxes[np.argmax(areas)][0], bounding_boxes[np.argmax(areas)][1], (0, 255, 0), 2)  # Draw bounding box
-	# image_print(img)
+	cv2.rectangle(img, bounding_boxes[np.argmax(areas)][0], bounding_boxes[np.argmax(areas)][1], (0, 255, 0), 2)  # Draw bounding box
+	image_print(img)
 	if bounding_box == ((0,0),(0,0)):
 		return bounding_box
 	return bounding_boxes[np.argmax(areas)]#largest_bbox
 
 if __name__ == "__main__":
-	cone_template = "test_images_cone/cone_template.png"
-	template = cv2.imread(cone_template)
+	# cone_template = "test_images_cone/cone_template.png"
+	# template = cv2.imread(cone_template)
 	for i in range(1,20):
 		image_path = "test_images_cone/test" +str(i) + ".jpg"
 
@@ -114,3 +115,6 @@ if __name__ == "__main__":
 
 	# 	image = cv2.imread(image_path)
 	# 	cd_color_segmentation(np.array(image))
+	# image_path = "test_images_line/line1.png"
+	# image = cv2.imread(image_path)
+	# cd_color_segmentation(np.array(image), line = True)
