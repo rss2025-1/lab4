@@ -32,8 +32,8 @@ class ParkingController(Node):
         
         # Controller parameters
         self.wheelbase = 0.325  # Distance between front and rear axles (meters)
-        self.max_speed = 0.7    # Maximum speed (m/s) - increased from 0.5
-        self.min_speed = 0.2    # Minimum speed when moving (m/s) - increased from 0.15
+        self.max_speed = 1.2    # Maximum speed (m/s) - increased from 0.5
+        self.min_speed = 0.6    # Minimum speed when moving (m/s) - increased from 0.15
         
         # Thresholds and gains
         self.angle_threshold = 0.1  # Radians (~5.7 degrees)
@@ -77,11 +77,7 @@ class ParkingController(Node):
         
         # Minimum speed required for turning (to prevent jittering)
         self.min_turn_speed = 0.25  # Minimum speed when turning - increased from 0.2
-        
-        # Add a flag to force movement in real life
-        self.force_movement_counter = 0
-        self.force_movement_every = 10  # Force movement every 10 frames if no progress
-        
+
         self.get_logger().info("Parking Controller Initialized")
 
     def smooth_control(self, target, previous, smoothing_factor):
@@ -136,7 +132,6 @@ class ParkingController(Node):
             # If we're not making significant progress
             if distance_change < 0.02 and angle_change < 0.02:
                 self.stuck_counter += 1
-                self.force_movement_counter += 1
                 if self.stuck_counter > self.stuck_threshold and self.state != self.PARKED:
                     is_stuck = True
                     self.stuck_counter = 0
@@ -145,8 +140,6 @@ class ParkingController(Node):
             else:
                 # Reset counter if we're making progress
                 self.stuck_counter = 0
-                # Only partially reset force movement counter to ensure movement
-                self.force_movement_counter = max(0, self.force_movement_counter - 1)
         
         # Save current values for next iteration
         self.last_distance = distance_to_cone
@@ -155,13 +148,6 @@ class ParkingController(Node):
         # Initialize target speed and steering
         target_speed = 0.0
         steering_angle = 0.0
-        
-        # Force movement periodically if we're not making progress
-        force_movement = self.force_movement_counter >= self.force_movement_every
-        if force_movement and self.state != self.PARKED:
-            if should_log:
-                self.get_logger().info("Forcing movement to prevent stalling")
-            self.force_movement_counter = 0
         
         # State machine for parking
         if self.state == self.ALIGN:
@@ -265,10 +251,6 @@ class ParkingController(Node):
                 
                 # Use the larger of the two speeds to ensure we're always moving enough
                 target_speed = max(min_forward_speed, distance_speed)
-                
-                # Force a minimum speed if we need to ensure movement
-                if force_movement:
-                    target_speed = max(target_speed, 0.3)
             
             # If we're well-aligned with the cone, transition to APPROACH
             if abs(angle_to_cone) < self.angle_threshold:
@@ -319,10 +301,6 @@ class ParkingController(Node):
             # Add a small deadband to prevent oscillation around the target
             if abs(distance_error) < self.distance_threshold * 0.5:
                 target_speed = 0.0
-            
-            # Force a minimum speed if we need to ensure movement
-            if force_movement and abs(distance_error) > self.distance_threshold:
-                target_speed = 0.3 if distance_error > 0 else -0.3
             
             # If we're at the right distance and still aligned, we're parked
             if abs(distance_error) < self.distance_threshold and abs(angle_to_cone) < self.angle_threshold:
@@ -386,12 +364,6 @@ class ParkingController(Node):
                 # Use the sign of the current speed or steering direction if speed is near zero
                 speed_sign = 1.0 if speed > 0.01 else (-1.0 if speed < -0.01 else (1.0 if steering_angle * self.relative_y > 0 else -1.0))
                 speed = speed_sign * min_required_speed
-        
-        # Force a minimum speed if we've been stuck too long, even in PARKED state
-        if force_movement and abs(speed) < 0.1:
-            speed = 0.3  # Just move forward to unstick
-            if should_log:
-                self.get_logger().info("Forcing minimum speed to overcome stalling")
         
         # Limit speed
         speed = max(min(speed, self.max_speed), -self.max_speed)
