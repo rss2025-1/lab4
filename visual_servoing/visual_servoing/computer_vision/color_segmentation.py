@@ -86,7 +86,7 @@ def cd_color_segmentation(img, template = None, line = False, merge_bb = False):
 	areas = []
 	contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 	for contour in contours:
-		if cv2.contourArea(contour) > 15:  # Minimum contour area to avoid noise
+		if cv2.contourArea(contour) > 5:  # Minimum contour area to avoid noise
 			x, y, w, h = cv2.boundingRect(contour)
 			bounding_box = ( (x, y), (x + w, y + h))
 			# cv2.rectangle(img, bounding_box[0], bounding_box[1], (0, 255, 0), 2)  # Draw bounding box
@@ -95,7 +95,7 @@ def cd_color_segmentation(img, template = None, line = False, merge_bb = False):
 	# if merge_bb:
 	# 	bounding_boxes = merge_bounding_boxes(bounding_boxes)
 	# largest_bbox = max(bounding_boxes, key=lambda box: (box[1][0] - box[0][0]) * (box[1][1] - box[0][1]))
-	# cv2.rectangle(img, largest_bbox[0], largest_bbox[1], (0, 255, 0), 2)  # Draw bounding box
+	cv2.rectangle(img, bounding_boxes[np.argmax(areas)][0], bounding_boxes[np.argmax(areas)][1], (0, 255, 0), 2)  # Draw bounding box
 	image_print(img)
 	if bounding_box == ((0,0),(0,0)):
 		return bounding_box
