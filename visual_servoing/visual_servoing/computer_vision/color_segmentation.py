@@ -77,7 +77,12 @@ def cd_color_segmentation(img, template = None, line = False, merge_bb = False):
 
 	lower_hue = 1  # Lower HSV threshold
 	upper_hue = 30 # Upper HSV threshold
-	lower_bound = np.array([lower_hue, 200, 150],  dtype=np.uint8)  # Lower HSV threshold 
+	
+	if line:
+		lower_bound = np.array([1, 120, 140], dtype=np.uint8)  # More lenient on S & V
+		upper_bound = np.array([30, 255, 255], dtype=np.uint8)  # Cover more brightness
+	else:
+		lower_bound = np.array([lower_hue, 200, 150],  dtype=np.uint8)  # Lower HSV threshold 
 	upper_bound = np.array([upper_hue, 255, 255],  dtype=np.uint8)  # Upper HSV threshold
 	
 	
