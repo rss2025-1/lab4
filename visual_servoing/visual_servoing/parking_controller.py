@@ -43,13 +43,15 @@ class ParkingController(Node):
 
         # Calculate distance and angle to cone
         cone_distance = np.linalg.norm([self.cone_x, self.cone_y])
+
+        # Calculate distance error from target
+        distance_deviation = cone_distance - self.target_distance
+
         heading_angle = np.arctan2(self.cone_y, self.cone_x)
 
         velocity = 0.0
         
-        # Calculate distance error from target
-        distance_deviation = cone_distance - self.target_distance
-
+        
         # Only move if we're not perfectly positioned
         if distance_deviation != 0 or heading_angle != 0:
             # Direction-aware steering calculation
@@ -57,10 +59,11 @@ class ParkingController(Node):
             steering = direction * self.steering_gain * heading_angle
             
             # Only apply velocity if we're not close enough
-            if np.absolute(distance_deviation) > .05:
-                velocity = self.velocity_gain * distance_deviation 
-            else:
+            velocity = 0 if abs(distance_deviation) < .1 else self.velocity_gain * distance_deviation 
+            if abs(distance_deviation) < .05:
                 velocity = 0
+            else:
+                velocity = self.velocity_gain * distance_deviation 
 
         # Handle stuck condition
         if self.recovery_mode or (velocity < .5 and np.absolute(heading_angle) > 0.01):
