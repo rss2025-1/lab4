@@ -29,14 +29,14 @@ class ParkingController(Node):
         
         # Pure pursuit parameters
         self.wheelbase = 0.325  # Distance between front and rear axles (meters)
-        self.max_speed = 0.8    # Maximum speed (m/s)
+        self.max_speed = 0.7    # Maximum speed (m/s)
         self.min_speed = 0.1    # Minimum speed when moving (m/s)
         self.max_steering = 0.4  # Maximum steering angle (radians)
         
         # Lookahead distance parameters
         self.min_lookahead = 0.3  # Minimum lookahead distance
-        self.max_lookahead = 1.5  # Maximum lookahead distance
-        self.lookahead_factor = 0.5  # Factor to multiply distance by for lookahead
+        self.max_lookahead = 1.0  # Maximum lookahead distance (reduced from 1.5)
+        self.lookahead_factor = 0.4  # Factor to multiply distance by for lookahead (reduced from 0.5)
         
         # Variables to store previous control values for smoothing
         self.prev_steering = 0.0
@@ -49,6 +49,9 @@ class ParkingController(Node):
         # Threshold for considering the parking complete
         self.distance_threshold = 0.05  # Meters
         self.angle_threshold = 0.05     # Radians
+        
+        # Alignment parameters
+        self.alignment_weight = 2.0  # Weight for alignment vs. distance (increased from 1.0)
         
         self.get_logger().info("Pure Pursuit Parking Controller Initialized")
 
@@ -73,26 +76,41 @@ class ParkingController(Node):
         lookahead = min(self.max_lookahead, max(self.min_lookahead, 
                                                abs(distance_to_go) * self.lookahead_factor))
         
+        # Increase the importance of alignment as we get closer to the target
+        alignment_factor = min(1.0, self.alignment_weight * (1.0 - min(1.0, abs(distance_to_go) / 0.5)))
+        
         # If we're too close, we need to back up, so place the target point behind the robot
-        if distance_to_go < 0:
+        if distance_to_go < -0.05:  # Only back up if we're significantly too close
             # Target point is behind the robot (negative x)
             target_x = -lookahead
-            target_y = 0
+            # Add lateral offset to help with alignment
+            target_y = -y * alignment_factor
         else:
-            # Calculate a target point that's in the direction of the cone but at the lookahead distance
-            # from the robot's current position
+            # Calculate a target point that helps with alignment
             
-            # Normalize the vector to the cone
-            norm = current_distance
-            if norm < 0.001:  # Avoid division by zero
-                norm = 0.001
+            # If we're close to the target distance but not aligned, prioritize alignment
+            if abs(distance_to_go) < 0.2 and abs(angle) > 0.1:
+                # Create a target point that's more to the side to help with alignment
+                target_x = x * 0.5  # Reduce forward component
+                target_y = y * 1.5  # Increase lateral component
+            else:
+                # Normalize the vector to the cone
+                norm = current_distance
+                if norm < 0.001:  # Avoid division by zero
+                    norm = 0.001
+                    
+                unit_x = x / norm
+                unit_y = y / norm
                 
-            unit_x = x / norm
-            unit_y = y / norm
-            
-            # Place the target point at the lookahead distance in the direction of the cone
-            target_x = unit_x * lookahead
-            target_y = unit_y * lookahead
+                # Place the target point at the lookahead distance in the direction of the cone
+                # but adjust it to help with alignment
+                target_x = unit_x * lookahead
+                target_y = unit_y * lookahead
+                
+                # Add a lateral adjustment to improve alignment
+                # This shifts the target point more to the side when the cone is off-center
+                lateral_adjustment = y * alignment_factor
+                target_y += lateral_adjustment
         
         return target_x, target_y
 
@@ -151,19 +169,36 @@ class ParkingController(Node):
         # Calculate steering angle using pure pursuit
         target_steering = self.pure_pursuit_control(target_x, target_y)
         
-        # Calculate speed based on distance error
+        # Calculate speed based on distance error and alignment
         # Go slower as we get closer to the target
         if abs(distance_error) < self.distance_threshold and abs(angle) < self.angle_threshold:
             # We're at the target, stop
             target_speed = 0.0
+            target_steering = 0.0
+            self.get_logger().info("Parked successfully!")
         else:
             # Set speed proportional to distance error, with a sign to determine direction
             speed_factor = min(1.0, abs(distance_error) / 0.5)  # Scale speed by distance, max out at 0.5m
-            target_speed = np.sign(distance_error) * max(self.min_speed, self.max_speed * speed_factor)
             
-            # If we're close but not aligned, move very slowly
-            if abs(distance_error) < 0.1 and abs(angle) > self.angle_threshold:
-                target_speed *= 0.5  # Reduce speed to align better
+            # Reduce speed when the angle is large (for better alignment)
+            angle_factor = max(0.3, 1.0 - min(1.0, abs(angle) / 0.5))
+            
+            # Combine factors
+            combined_factor = speed_factor * angle_factor
+            
+            # Set speed with direction
+            target_speed = np.sign(distance_error) * max(self.min_speed, self.max_speed * combined_factor)
+            
+            # Special case: if we're close but not aligned, prioritize alignment
+            if abs(distance_error) < 0.15 and abs(angle) > 0.1:
+                # If the cone is to the left, we need to turn left (negative steering)
+                # If the cone is to the right, we need to turn right (positive steering)
+                if abs(angle) > 0.3:  # If angle is large, we might need to back up to align
+                    target_speed = -0.15  # Slow backward movement for alignment
+                    # Reverse the steering direction when backing up
+                    target_steering = -np.sign(angle) * min(self.max_steering, abs(angle) * 0.8)
+                else:
+                    target_speed *= 0.5  # Reduce speed for fine alignment
         
         # Smooth the control signals
         smooth_speed = self.smooth_control(target_speed, self.prev_speed, self.speed_smoothing)
