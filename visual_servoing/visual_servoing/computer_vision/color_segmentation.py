@@ -106,7 +106,7 @@ def cd_color_segmentation(img, template = None, line = False, merge_bb = False):
 	# if merge_bb:
 	# 	bounding_boxes = merge_bounding_boxes(bounding_boxes)
 	# largest_bbox = max(bounding_boxes, key=lambda box: (box[1][0] - box[0][0]) * (box[1][1] - box[0][1]))
-	#cv2.rectangle(img, bounding_boxes[np.argmax(areas)][0], bounding_boxes[np.argmax(areas)][1], (0, 255, 0), 2)  # Draw bounding box
+	cv2.rectangle(img, bounding_boxes[np.argmax(areas)][0], bounding_boxes[np.argmax(areas)][1], (0, 255, 0), 2)  # Draw bounding box
 	#image_print(img)
 	if bounding_box == ((0,0),(0,0)):
 		return bounding_box
@@ -115,16 +115,16 @@ def cd_color_segmentation(img, template = None, line = False, merge_bb = False):
 if __name__ == "__main__":
 	# cone_template = "test_images_cone/cone_template.png"
 	# template = cv2.imread(cone_template)
-	for i in range(1,20):
-		image_path = "test_images_cone/test" +str(i) + ".jpg"
+	# for i in range(1,20):
+	# 	image_path = "test_images_cone/test" +str(i) + ".jpg"
 
-		image = cv2.imread(image_path)
-		print(cd_color_segmentation(np.array(image), template = None, line = False))
+	# 	image = cv2.imread(image_path)
+	# 	print(cd_color_segmentation(np.array(image), template = None, line = False))
 	# for i in range(1,5):
 	# 	image_path = "test_images_cone_real/test" +str(i) + ".png"
 
 	# 	image = cv2.imread(image_path)
 	# 	cd_color_segmentation(np.array(image))
-	# image_path = "test_images_line/line1.png"
-	# image = cv2.imread(image_path)
-	# cd_color_segmentation(np.array(image), line = True)
+	image_path = "test_images_line/line1.png"
+	image = cv2.imread(image_path)
+	cd_color_segmentation(np.array(image), line = True)
