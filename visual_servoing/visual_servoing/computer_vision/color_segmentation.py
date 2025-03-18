@@ -127,4 +127,4 @@ if __name__ == "__main__":
 	# 	cd_color_segmentation(np.array(image))
 	image_path = "test_images_line/line1.png"
 	image = cv2.imread(image_path)
-	cd_color_segmentation(np.array(image), line = True)
+	cd_color_segmentation(np.array(image), line = False)
