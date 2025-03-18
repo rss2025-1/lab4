@@ -25,7 +25,7 @@ class ParkingController(Node):
         self.create_subscription(ConeLocation, "/relative_cone", 
             self.relative_cone_callback, 1)
 
-        self.target_distance = 1 # Target distance from cone in meters
+        self.target_distance = 0.2 # Target distance from cone in meters
         self.cone_x = 0
         self.cone_y = 0
 
